@@ -1,22 +1,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-/*#include <assert.h> */
 #include "hashtable.h"
+
+/* ========================= ESTRUTURAS  ============================= */
+/* LISTA LIGADA: contem uma chave (string), um valor do tipo void (generico) e um 
+   ponteiro para o node seguinte */
+struct node {
+    char *chave;
+    void *valor;
+    struct node *next;
+};
+
+/* HASHTABLE: contem uma lista de nodes, o tamanho e uma lista de chaves. */
+struct table {
+    node **tabela;
+    int tamanho;
+    chaves chaves;
+};
+
 
 /* equivalente a strdup, duplica uma string */
 char *dupstring(const char *src) {
     char *dest = (char *) malloc(strlen(src) + 1);
 
-    /* assert(src != NULL); */
-    /* assert(dest != NULL); */
-    strcpy(dest, src);
-
-    return dest;
+    if (dest != NULL) {
+        strcpy(dest, src);
+        return dest;
+    }
+    
+    return NULL;
 }
 
-node *cria_elemento(char *chave, void *valor, int size) {
-    /*assert(chave != NULL && valor != NULL);*/
+/* ========================= FUNCOES DE NODES  ============================= */
+
+node *cria_elemento(char *chave, void *valor, void *(* copiar)(void *valor)) {
 
     node *new_node = (node *) malloc(sizeof(node));
 
@@ -24,42 +42,69 @@ node *cria_elemento(char *chave, void *valor, int size) {
     if (new_node == NULL) return NULL;
 
     new_node->chave = dupstring(chave);
-    new_node->valor = malloc(size);
-    memcpy(new_node->valor, valor, size); 
+    new_node->valor = copiar(valor);
 
-    return new_node;
+    if (new_node->chave != NULL && new_node->valor !=NULL) { 
+        return new_node;
+    }
+
+    return NULL;
 }
 
 /* destroi um elemento duma tabela e a memoria associada a ele */
-void apaga_elemento(node *elemento) {
-    free(elemento->valor);
+void destroi_elemento(node *elemento, void (* destroi)(void *valor)) {
+    destroi(elemento->valor);
     free(elemento->chave);
     free(elemento);
 }
 
-/* funcao que cria hash table com um dado size*/
-table *cria_tabela(int tamanho) { 
-    /* assert(tamanho > 0);*/
 
+/* ========================= FUNCOES DE CHAVES  ============================= */
+
+bool cria_chaves(chaves *c, int tamanho) {
+    c->lista_chaves = (char **) malloc(tamanho * sizeof(char *));
+    if (c->lista_chaves == NULL) return false;
+    c->tamanho = tamanho;
+    c->ultima_chave = 0;
+    return true;
+}
+
+bool insere_chave(chaves *c, char *chave) {
+
+    /* ve se esta cheio */
+    if (c->ultima_chave == c->tamanho) {
+        /* duplicar capacidade da lista de chaves*/
+        c->lista_chaves = (char **) realloc(c->lista_chaves, c->tamanho * 2 * sizeof(char *));
+        if (c->lista_chaves == NULL) return false;
+        c->tamanho = c->tamanho * 2;
+    }
+
+    c->lista_chaves[c->ultima_chave] = chave;
+    c->ultima_chave++;
+    
+    return true;
+}
+
+bool remove_chave(chaves *c, char *chave) {
     int i;
 
-    table *t = (table *) malloc(sizeof(table));
-    /* assert(t != NULL); */
+    for (i = 0; i < c->ultima_chave; i++) {
+        if (strcmp(c->lista_chaves[i], chave) == 0) {
+            c->lista_chaves[i] = NULL; /* lazy remove */ 
+            return true;
+        }
+    }
 
-    t->tamanho = tamanho;
-    t->lista = (node**) malloc(tamanho * sizeof(node*));  
-    /* assert(t->lista != NULL); */
-
-    /* inicializa a lista com ponteiros nulos (tb podia usar calloc()) */
-    for (i = 0; i < tamanho; i++)
-        t->lista[i] = NULL;
-
-    return t;
+    return false;
 }
+
+chaves *devolve_chaves(table *t) {
+    return &t->chaves;
+}
+/* ========================= FUNCOES DA HASHTABLE  ============================= */
 
 /* Implementacao do algoritmo de Dan Bernstein, "djb2"*/
 int hash(table *t, char *chave) {
-    /* assert(t != NULL && chave != NULL); */
 
     int hash = 5381;
     int c;
@@ -67,46 +112,72 @@ int hash(table *t, char *chave) {
     while ((c = *chave++)) {
         hash = (((hash << 5) + hash) + c) % t->tamanho; /* (hash*33 + c) % tamanho */
     }
-    /* assert(hash < t->tamanho); */
 
     return hash;
 }
 
-/* funcao que insere/atualiza valor numa tabela */
-void insere_tabela(table *t, char *chave, void *valor, unsigned int size) { 
-    /* assert(t != NULL && chave != NULL && valor != NULL); */
+/* funcao que cria hash table com um dado size*/
+table *cria_tabela(int tamanho) { 
+
+    int i;
+
+    table *t = (table *) malloc(sizeof(table));
+
+    t->tamanho = tamanho;
+    t->tabela = (node**) malloc(tamanho * sizeof(node*));
+    if (t->tabela == NULL) return NULL;
+
+    /* inicializa a tabela com ponteiros nulos (tb podia usar calloc()) */
+    for (i = 0; i < tamanho; i++)
+        t->tabela[i] = NULL;
+
+    if (!cria_chaves(&t->chaves, tamanho)) return NULL;
+
+    return t;
+}
+
+/* funcao que insere/atualiza valor numa tabela 
+   Nota: precisamos de uma funcao para alocar e copiar o valor 
+   porque o valor contem ponteiros e nao basta copia o ponteiro mas sim o conteudo */
+bool insere_tabela(table *t, char *chave, void *valor, void *(* copiar)(void *valor)) { 
 
     int pos = hash(t, chave);
-    node *lista = t->lista[pos];
+    node *tabela = t->tabela[pos];
     node *new_node; /* alocar so se for necessario! */
     node *temp;
+    void *valor_anterior;
 
-    for (temp = lista; temp != NULL; temp = temp->next) { 
-        /* assert(temp->chave != NULL && temp->valor != NULL); */
+    for (temp = tabela; temp != NULL; temp = temp->next) { 
 
         /* se encontrarmos a nossa chave, atualizar o valor */
         if (strcmp(temp->chave, chave) == 0) {
-            memcpy(temp->valor, valor, size); /* porque valor e um ponteiro para void */
-            return;
+            valor_anterior = temp->valor;
+            temp->valor = copiar(valor);
+            if (valor_anterior != NULL) free(valor_anterior);
+            return temp->valor != NULL ? true : false;
         }
     }
 
     /* alocar e inserir no fim */
-    new_node = cria_elemento(chave, valor, size);
-    new_node->next = lista;
-    t->lista[pos] = new_node;
+    new_node = cria_elemento(chave, valor, copiar);
+
+    if (new_node != NULL) {
+        new_node->next = tabela;
+        t->tabela[pos] = new_node;
+        
+        return insere_chave(&t->chaves, chave);
+    }
+
+    return false;
 }
 
 /* funcao que retorna ponteiro para o valor ou NULL se nao existir */
 void *procura_tabela(table *t, char *chave) {
-    /* assert(t != NULL && chave != NULL); */
 
     int pos = hash(t, chave);
     node *temp;
 
-    for (temp = t->lista[pos]; temp != NULL; temp = temp->next) {
-        /* assert(temp->chave  != NULL && temp->valor != NULL); */
-
+    for (temp = t->tabela[pos]; temp != NULL; temp = temp->next) {
         /* se encontrar, retornar pointeiro */
         if (strcmp(temp->chave, chave) == 0) {
             return temp->valor;
@@ -116,11 +187,10 @@ void *procura_tabela(table *t, char *chave) {
 }
 
 /* funcao que remove valor numa tabela, pela chave */
-void remove_tabela(table *t, char *chave) { 
-    /* assert(t != NULL && chave != NULL); */
+bool remove_tabela(table *t, char *chave, void (* destroi)(void *valor)) { 
 
     int pos = hash(t, chave);
-    node *temp = t->lista[pos];
+    node *temp = t->tabela[pos];
     node *prev = NULL;
 
     while (temp != NULL) { 
@@ -130,31 +200,30 @@ void remove_tabela(table *t, char *chave) {
 
             /* se for a head da lista*/
             if (prev == NULL) {
-                t->lista[pos] = temp->next;
+                t->tabela[pos] = temp->next;
             } else {
                 prev->next = temp->next;
             }
-            apaga_elemento(temp);
-            return;
+            destroi_elemento(temp, destroi);
+            remove_chave(&t->chaves, chave);
+            return true;
         }
 
         prev = temp;
         temp = temp->next;
     }
+    return false;
 }
 
 /* implementar um "foreach" sobre a tabela de hash */
 void iterar_tabela(table *t, bool (* funcao)(char *chave, void *valor, void *contexto), void *contexto) {
-    /* assert(t != NULL && funcao != NULL); */
 
     int i;
     node *temp;
 
     for (i = 0; i < t->tamanho; i++) {
         
-        for (temp = t->lista[i]; temp != NULL; temp = temp->next) {
-            /* assert(temp->chave != NULL && temp->valor != NULL); */
-
+        for (temp = t->tabela[i]; temp != NULL; temp = temp->next) {
             /* para quando a funcao retorna false */
             if (!funcao(temp->chave, temp->valor, contexto)) return;
         }
@@ -163,24 +232,24 @@ void iterar_tabela(table *t, bool (* funcao)(char *chave, void *valor, void *con
 }
 
 /* funcao que apaga toda a memoria associada a tabela */
-void destroi_tabela(table *t) {
-    /* assert(t != NULL); */
+void destroi_tabela(table *t, void (* destroi)(void *valor)) {
 
     int i;
     node *temp, *next;
 
     for (i = 0; i < t->tamanho; i++) {
-        temp = t->lista[i];
+        temp = t->tabela[i];
 
-        /* apagar todos os elementos da lista */
+        /* apagar todos os elementos da tabela */
         while (temp != NULL) {
             next = temp->next;
-            apaga_elemento(temp);
+            destroi_elemento(temp, destroi);
             temp = next;
         }
     }
 
-    /* apaga a estrutura em si */
-    free(t->lista);
+    /* apaga a estrutura em si e a lista de chaves */
+    free(t->chaves.lista_chaves);
+    free(t->tabela);
     free(t);
 }
