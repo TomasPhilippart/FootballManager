@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "wrapper_futebol.h"
 
 /* As funcoes deste modulo sao funcoes "wrapper", estilo API que manipulam diretamente a hashtable. */
@@ -26,6 +27,11 @@ jogo cria_jogo(char *nome, char *nome_equipa1, char *nome_equipa2, int score_eq1
     return novo_jogo;
 }
 
+lista_equipas cria_lista() {
+    lista_equipas l;
+    l.head = NULL;
+    return l;
+}
 
 /* ========================= COPIA ============================= */
 
@@ -76,6 +82,19 @@ void destroi_equipa(void *equipa_original) {
     free(temp);
 }
 
+void destroi_lista(lista_equipas *l) {
+    node_equipa *temp = l->head;
+    node_equipa *next;
+    
+    while (temp != NULL) {
+        next = temp->next;
+        free(temp);
+        temp = next;
+    }
+
+    l->head = NULL;
+}
+
 
 /* ========================= INSERCAO ============================= */
 
@@ -103,13 +122,29 @@ bool insere_jogo(table *t_jogos, table *t_equipas, char *chave, jogo *jogo) {
     return status;
 }
 
+/* cria (se for null) e insere equipa na lista de equipas */
+bool insere_lista(lista_equipas *l, equipa *equipa) {
+
+    node_equipa *novo_elemento, *temp;
+
+    /* insere no inicio */
+    novo_elemento = (node_equipa *) malloc(sizeof(struct node_equipa));
+    if (novo_elemento != NULL) {
+        temp = l->head;
+        novo_elemento->equipa = equipa;
+        novo_elemento->next = temp;
+        l->head = novo_elemento;
+        return true;
+    }
+    return false;
+}
+
 
 /* ========================= REMOCAO ============================= */
 
 bool remove_equipa(table *t, char *chave) { 
     return remove_tabela(t, chave, destroi_equipa);
 }
-
 
 bool remove_jogo(table *t_jogos, table *t_equipas, char *chave) { 
 
@@ -130,7 +165,6 @@ bool remove_jogo(table *t_jogos, table *t_equipas, char *chave) {
     } else if (vencedor_jogo == 2) {
         equipa2->jogos_ganhos--;
     }
-
     return remove_tabela(t_jogos, chave, destroi_jogo);
 }
 
@@ -143,6 +177,10 @@ equipa *procura_equipa(table *t, char *chave) {
 
 jogo *procura_jogo(table *t, char *chave) {
     return (jogo *) procura_tabela(t, chave);
+}
+
+node_equipa *obtem_inicio_lista(lista_equipas *l) {
+    return l->head;
 }
 
 /* ========================= AUXILIARES ============================= */
@@ -222,4 +260,45 @@ bool muda_pontuacao(table *t_equipas, jogo *jogo, int novo_score1, int novo_scor
     }
 
     return false;
+}
+
+int compara_equipas(const void *e1_void, const void *e2_void) {
+    equipa *e1 = *(equipa **)e1_void;
+    equipa *e2 = *(equipa **)e2_void;
+
+    if (e1 != NULL && e2 != NULL && e1->nome != NULL && e2->nome != NULL) {
+        return -strcmp(e1->nome, e2->nome);
+    }
+
+    return 0;
+}
+
+void ordenar_lista_equipas(lista_equipas *l, lista_equipas *resultados) {
+
+    int i, num_equipas = 0;
+    node_equipa *temp;
+    equipa **equipas_ordenadas;
+
+    /* obtem tamanho da lista */
+    for (temp = obtem_inicio_lista(l); temp != NULL; temp = temp->next) {
+        num_equipas++;
+    }
+
+    /* transformar lista num array */
+    equipas_ordenadas = (equipa **) malloc(num_equipas * sizeof(struct equipa *));
+    for (temp = obtem_inicio_lista(l), i = 0; temp != NULL && i < num_equipas; temp = temp->next, i++) {
+        equipas_ordenadas[i] = temp->equipa;
+    }
+
+    /* ordena com a funcao compara_equipas */
+    if (equipas_ordenadas != NULL) {
+       qsort(equipas_ordenadas, num_equipas, sizeof(struct equipa *), compara_equipas); 
+    }
+
+    /* transformar de volta para lista ligada */
+    for (i = 0; i < num_equipas; i++) {
+        insere_lista(resultados, equipas_ordenadas[i]);
+    }
+
+    free(equipas_ordenadas);
 }

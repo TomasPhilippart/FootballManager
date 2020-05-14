@@ -12,6 +12,15 @@ struct node {
     struct node *next;
 };
 
+
+/* LISTA DE CHAVES: array dinamico que mantem conta da ordem pela qual
+   um item foi introduzido na hashtable, guardando a sua chave  */
+typedef struct chaves {
+    char **lista_chaves;
+    int tamanho;           /* capacidade alocada */
+    int ultima_chave;
+} chaves;
+
 /* HASHTABLE: contem uma lista de nodes, o tamanho e uma lista de chaves. */
 struct table {
     node **tabela;
@@ -65,31 +74,32 @@ bool cria_chaves(chaves *c, int tamanho) {
     c->lista_chaves = (char **) malloc(tamanho * sizeof(char *));
     if (c->lista_chaves == NULL) return false;
     c->tamanho = tamanho;
-    c->ultima_chave = 0;
+    c->ultima_chave = -1;
     return true;
 }
 
 bool insere_chave(chaves *c, char *chave) {
 
     /* ve se esta cheio */
-    if (c->ultima_chave == c->tamanho) {
+    if (c->ultima_chave == c->tamanho - 1) {
         /* duplicar capacidade da lista de chaves*/
         c->lista_chaves = (char **) realloc(c->lista_chaves, c->tamanho * 2 * sizeof(char *));
         if (c->lista_chaves == NULL) return false;
         c->tamanho = c->tamanho * 2;
     }
-
-    c->lista_chaves[c->ultima_chave] = chave;
     c->ultima_chave++;
-    
+    c->lista_chaves[c->ultima_chave] = chave;
+
     return true;
 }
 
 bool remove_chave(chaves *c, char *chave) {
     int i;
+    char *temp;
 
-    for (i = 0; i < c->ultima_chave; i++) {
-        if (strcmp(c->lista_chaves[i], chave) == 0) {
+    for (i = 0; i <= c->ultima_chave; i++) {
+        temp = c->lista_chaves[i];
+        if (temp != NULL && strcmp(temp, chave) == 0) {
             c->lista_chaves[i] = NULL; /* lazy remove */ 
             return true;
         }
@@ -98,9 +108,6 @@ bool remove_chave(chaves *c, char *chave) {
     return false;
 }
 
-chaves *devolve_chaves(table *t) {
-    return &t->chaves;
-}
 /* ========================= FUNCOES DA HASHTABLE  ============================= */
 
 /* Implementacao do algoritmo de Dan Bernstein, "djb2"*/
@@ -142,12 +149,12 @@ table *cria_tabela(int tamanho) {
 bool insere_tabela(table *t, char *chave, void *valor, void *(* copiar)(void *valor)) { 
 
     int pos = hash(t, chave);
-    node *tabela = t->tabela[pos];
+    node *lista = t->tabela[pos];
     node *new_node; /* alocar so se for necessario! */
     node *temp;
     void *valor_anterior;
 
-    for (temp = tabela; temp != NULL; temp = temp->next) { 
+    for (temp = lista; temp != NULL; temp = temp->next) { 
 
         /* se encontrarmos a nossa chave, atualizar o valor */
         if (strcmp(temp->chave, chave) == 0) {
@@ -162,10 +169,10 @@ bool insere_tabela(table *t, char *chave, void *valor, void *(* copiar)(void *va
     new_node = cria_elemento(chave, valor, copiar);
 
     if (new_node != NULL) {
-        new_node->next = tabela;
+        new_node->next = lista;
         t->tabela[pos] = new_node;
         
-        return insere_chave(&t->chaves, chave);
+        return insere_chave(&t->chaves, new_node->chave);
     }
 
     return false;
@@ -204,8 +211,8 @@ bool remove_tabela(table *t, char *chave, void (* destroi)(void *valor)) {
             } else {
                 prev->next = temp->next;
             }
-            destroi_elemento(temp, destroi);
             remove_chave(&t->chaves, chave);
+            destroi_elemento(temp, destroi);
             return true;
         }
 
@@ -229,6 +236,30 @@ void iterar_tabela(table *t, bool (* funcao)(char *chave, void *valor, void *con
         }
     }
 
+}
+
+/* implementar um "foreach" sobre a tabela de hash - pela ordem de insercao */
+void iterar_ordenado(table *t, bool (* funcao)(char *chave, void *valor, void *contexto), void *contexto) {
+
+    int i;
+    void *valor;
+    char *chave;
+
+    /* iterar por todas as chaves na ordem de insercao, filtrando NULLs */
+    for (i = 0; i <= t->chaves.ultima_chave; i++) {
+
+        chave = t->chaves.lista_chaves[i];
+
+        if (chave != NULL) {
+            /* procura a chave na hashtable */
+            valor = procura_tabela(t, chave);
+
+            if (valor != NULL) {                
+                /* chama a funcao e parar a iteracao se retornar false */
+               if (!funcao(chave, valor, contexto)) return; 
+            }
+        }
+    }
 }
 
 /* funcao que apaga toda a memoria associada a tabela */

@@ -2,9 +2,10 @@
 #include <stdlib.h>
 #include "wrapper_futebol.h"
 
+/* ========================= DIRETIVAS  ============================= */
 #define MAX_STR 1024
-#define M_EQUIPAS 701 /* ver isto*/ 
-#define M_JOGOS 701 /* ver isto */
+#define M_EQUIPAS 701 
+#define M_JOGOS 701 
 
 /* ========================= PROTOTIPOS  ============================= */
 /* declaracao de funcoes: optei por manter os nomes das funcoes
@@ -12,7 +13,7 @@
    com as outras funcoes.  */
 void a(table *jogos, table *equipas, int numero_linha);
 void A(table *equipas, int numero_linha);
-void l();
+void l(table *jogos, int numero_linha);
 void p(table *jogos, int numero_linha);
 void P(table *equipas, int numero_linha);
 void r(table *jogos, table *equipas, int numero_linha);
@@ -29,52 +30,50 @@ int main() {
     int ch, numero_linha = 0;
 
     while (1) {
-        numero_linha++;
 
         switch(ch = getchar()) {
             
             /* Adiciona jogo */
             case 'a': 
-                a(jogos, equipas, numero_linha);
+                a(jogos, equipas, ++numero_linha);
                 break;
              
             /* Adiciona equipa */
             case 'A':
-                A(equipas, numero_linha);
+                A(equipas, ++numero_linha);
                 break;
             
                 
             /* Lista todos os jogos pela ordem de entrada */
             case 'l':  
-                l(jogos, numero_linha);
+                l(jogos, ++numero_linha);
                 break;
 
             /* Procura um jogo */
             case 'p': 
-                p(jogos, numero_linha);
+                p(jogos, ++numero_linha);
                 break;
             
             /* Procura uma equipa */
             case 'P': 
-                P(equipas, numero_linha);
+                P(equipas, ++numero_linha);
                 break;
             
             /* Apaga um jogo */
             case 'r': 
-                r(jogos, equipas, numero_linha);
+                r(jogos, equipas, ++numero_linha);
                 break;
             
                 
             /* Altera a pontuação de um jogo */
             case 's': 
-                s(jogos, equipas, numero_linha);
+                s(jogos, equipas, ++numero_linha);
                 break;
-            
 
             
             /* TODO: Encontra as equipas que venceram mais jogos */
             case 'g': {
-                /*g();*/
+                g(equipas, ++numero_linha);
                 break;
             }
 
@@ -87,8 +86,6 @@ int main() {
         }
     }
 }
-
-
 
 void a(table *jogos, table *equipas, int numero_linha) {
 
@@ -135,21 +132,25 @@ void A(table *equipas, int numero_linha) {
     }
 }
 
-void l(table *jogos, int numero_linha) {
-    chaves *chaves = devolve_chaves(jogos);
-    jogo *jogo;
-    int i;
+/* a assinatura da funcao deve cumprir os requisitos de iterar_ordenado */
+bool imprime_jogo(char *nome, void *jogo_void, void *num_ptr) {
 
-    /* para cada elemento de lista de chaves diferente de NULL, imprimir o jogo correspondente (se existir)*/
-    for (i = 0; i < chaves->ultima_chave; i++) {
-        if (chaves->lista_chaves[i] != NULL) {
-            if ((jogo = procura_jogo(jogos, chaves->lista_chaves[i])) != NULL) {
-                printf("%d %s %s %s %d %d\n", numero_linha, jogo->nome, jogo->nome_equipa1, jogo->nome_equipa2, jogo->score_eq1, jogo->score_eq2);
-            }
-        }
-        
+    jogo *j = (jogo *)jogo_void;
+    int numero_linha = *(int *)num_ptr;
+
+    if (j != NULL) {
+        printf("%d %s %s %s %d %d\n", numero_linha, nome, j->nome_equipa1, j->nome_equipa2, j->score_eq1, j->score_eq2);
     }
-    
+
+    return true;
+}
+
+void l(table *jogos, int numero_linha) {
+
+    void *num_ptr = (void *)&numero_linha;
+
+    /* iterar pela forma de insercao por todos os jogos, imprimindo-os */
+    iterar_ordenado(jogos, imprime_jogo, num_ptr);
 }
 
 void p(table *jogos, int numero_linha) {
@@ -189,14 +190,17 @@ void P(table *equipas, int numero_linha) {
 void r(table *jogos, table *equipas, int numero_linha) {
 
     char nome[MAX_STR];
-
+    jogo *jogo;
     /* le input */
     scanf(" %[^:\n]", nome);
 
     /* verifica se o jogo existe */
-    if (!remove_jogo(jogos, equipas, nome)) 
+        /* verifica se o jogo existe */
+    if ((jogo = procura_jogo(jogos, nome)) == NULL) {
         printf("%d Jogo inexistente.\n", numero_linha);
-
+    } else {
+        remove_jogo(jogos, equipas, nome);
+    }
 }
 
 void s(table *jogos, table *equipas, int numero_linha) {
@@ -216,5 +220,62 @@ void s(table *jogos, table *equipas, int numero_linha) {
     }
 }
 
-/* TODO */
-void g();
+bool melhores_equipas(char *chave, void *equipa_void, void *melhores_void) {
+
+    int score_max;
+    bool status;
+    equipa *e = (equipa *)equipa_void;
+    lista_equipas *melhores = (lista_equipas *)melhores_void;
+    node_equipa *inicio = obtem_inicio_lista(melhores);
+
+    (void)chave; /* nao precisamos da chave, suprimir warning */
+
+    if (melhores != NULL && inicio != NULL) {
+        if (e != NULL && inicio->equipa != NULL)  {
+            /* basta escolher a escolher a score da primeira "melhor" equipa, 
+            pois todas tem a mesma score (numero de jogos ganhos)*/
+            score_max = inicio->equipa->jogos_ganhos;
+
+            /* equipa e melhor */
+            if (e->jogos_ganhos > score_max) {
+                destroi_lista(melhores);
+                status = insere_lista(melhores, e);
+
+            /* mesma score */
+            } else if (e->jogos_ganhos == score_max) {
+                status = insere_lista(melhores, e);
+            }
+            /* equipa inferior, nada a fazer */
+        }
+    /* se nao houver nenhuma equipa nas melhores, inserir nova*/
+    } else {
+        status = insere_lista(melhores, e);
+    }
+
+    return status;
+}
+
+void g(table *equipas, int numero_linha) {
+    /* iterar por todas as equipas e encontrar as equipas com score maxima igual */
+    /* dessas equipas, ordenar por ordem lexicografica (alfabetica) */
+
+    node_equipa *temp;
+    lista_equipas melhores = cria_lista();
+    lista_equipas melhores_ordenadas = cria_lista();
+
+    iterar_tabela(equipas, melhores_equipas, (void *)&melhores);
+    
+    ordenar_lista_equipas(&melhores, &melhores_ordenadas);
+    temp = obtem_inicio_lista(&melhores_ordenadas);
+
+    if (temp != NULL && temp->equipa != NULL) {
+        printf("%d Melhores %d\n", numero_linha, temp->equipa->jogos_ganhos);
+
+        for ( ; temp != NULL; temp = temp->next) {
+            printf("%d * %s\n", numero_linha, temp->equipa->nome);
+        }
+    }
+
+    destroi_lista(&melhores);
+    destroi_lista(&melhores_ordenadas);
+}
